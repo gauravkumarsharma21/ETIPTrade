@@ -5,7 +5,7 @@ import time
 
 app = FastAPI()
 
-# ✅ CORS (important for frontend)
+# ✅ Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,18 +39,23 @@ def fetch_nse(symbol):
     # Step 2: Fetch data
     response = session.get(url, headers=headers, timeout=5)
 
-    # 🔍 Debug: check response
+    # Retry once if blocked
+    if response.status_code != 200:
+        time.sleep(1)
+        response = session.get(url, headers=headers, timeout=5)
+
     if response.status_code != 200:
         raise Exception("NSE blocked request")
 
+    # Try parsing JSON
     try:
         data = response.json()
-    except:
-        raise Exception("Invalid JSON (blocked by NSE)")
+    except Exception:
+        raise Exception("Invalid JSON (NSE blocked or returned HTML)")
 
-    # 🔴 Check if correct data
+    # Validate structure
     if "records" not in data:
-        raise Exception("NSE returned invalid structure")
+        raise Exception("Invalid response structure from NSE")
 
     result = []
 
@@ -66,14 +71,6 @@ def fetch_nse(symbol):
 
     return result
 
-import time
-
-# retry once
-response = session.get(url, headers=headers, timeout=5)
-
-if response.status_code != 200:
-    time.sleep(1)
-    response = session.get(url, headers=headers, timeout=5)
 
 @app.get("/")
 def home():
@@ -85,7 +82,7 @@ def get_option_chain(symbol: str = "NIFTY"):
 
     now = time.time()
 
-    # 🔥 Return cached data if available
+    # ✅ Return cache if available
     if symbol in cache_data and (now - cache_time[symbol]) < CACHE_DURATION:
         return {
             "source": "cache",
@@ -103,9 +100,9 @@ def get_option_chain(symbol: str = "NIFTY"):
             "data": data
         }
 
-except Exception as e:
-    return {
-        "error": str(e),
-        "message": "NSE blocked or failed",
-        "data": cache_data.get(symbol, [])
-    }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "message": "NSE blocked or failed",
+            "data": cache_data.get(symbol, [])
+        }
